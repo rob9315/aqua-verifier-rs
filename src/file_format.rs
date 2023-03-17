@@ -2,11 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-mod helpers;
-use helpers::{naive_date_time_from_str, naive_date_time_to_str};
-pub use helpers::format_naive_date_time;
 
-use self::helpers::ignore_when_empty_sig;
+mod helpers;
+pub use helpers::format_naive_date_time;
+use helpers::{ignore_when_empty_sig, naive_date_time_from_str, naive_date_time_to_str};
 
 #[derive(Serialize, Deserialize)]
 pub struct Namespace {

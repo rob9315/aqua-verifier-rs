@@ -1,9 +1,6 @@
 use base64::Engine;
-use libsecp256k1::RecoveryId;
-use sha3::{
-    digest::{generic_array::GenericArray, typenum::U64},
-    Digest,
-};
+use sha3::digest::{generic_array::GenericArray, typenum::U64};
+use sha3::Digest;
 
 use crate::file_format::format_naive_date_time;
 use crate::file_format::{RevisionContent, RevisionMetadata, RevisionSignature, RevisionWitness};
@@ -103,7 +100,7 @@ impl RevisionSignature {
         hasher.update("]");
         let hash = libsecp256k1::Message::parse(&<[u8; 32]>::from(hasher.finalize()));
         let Ok(sig) = libsecp256k1::Signature::parse_standard(&data) else {return false};
-        let Ok(recov) = RecoveryId::parse_rpc(recovery) else {return false};
+        let Ok(recov) = libsecp256k1::RecoveryId::parse_rpc(recovery) else {return false};
         let Ok(pubkey) = libsecp256k1::recover(&hash, &sig, &recov) else {return false};
         hex::encode(pubkey.serialize())[..] == public_key.to_lowercase()
     }
