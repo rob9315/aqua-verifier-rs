@@ -24,17 +24,14 @@ fn do_req(url: reqwest::Url, token: Option<&str>) -> reqwest::Result<reqwest::bl
 macro_rules! parse {
     ($($t:tt)*) => {
         {
-            let text = $($t)*?.text()?;
-            Ok(match serde_json::from_str(&text) {
-                Ok(res) => {Ok(JsonResult::Ok(res))}
-                Err(e) => {
-                    if let Ok(httperr) = serde_json::from_str(&text) {
-                        Ok(JsonResult::Err(httperr))
-                    } else {
-                        Err(e)
-                    }
-                },
-            })
+            let resp = $($t)*?;
+            match resp.error_for_status_ref() {
+                Ok(_) => Ok(serde_json::from_str(&resp.text()?).map(JsonResult::Ok)),
+                Err(e) => serde_json::from_str(&resp.text()?)
+                    .map_err(|_| e)
+                    .map(JsonResult::Err)
+                    .map(Ok),
+            }
         }
     };
 }

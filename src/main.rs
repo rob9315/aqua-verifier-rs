@@ -67,14 +67,14 @@ fn main() {
         }
 
         macro_rules! handle_network_req {
-            ($($t:tt)*) => {
-                match $($t)*
+            ($e:expr $(; $($u:tt)*)?) => {
+                match $e
                     .expect("Failed to contact PKC.")
                     .expect("Failed to parse response from PKC.") {
                     JsonResult::Ok(k) => k,
                     JsonResult::Err(e) => {
                         eprintln!("{e}");
-                        std::process::exit(1)
+                        $($($u)*)?
                     }
                 }
             };
@@ -82,7 +82,8 @@ fn main() {
 
         let token = args.token.as_deref();
 
-        let server_info = handle_network_req!(get_server_info(args.server.clone(), token));
+        let server_info =
+            handle_network_req!(get_server_info(args.server.clone(), token); std::process::exit(1));
         if server_info.api_version != API_VERSION {
             println!("Incompatible API version:\nCurrent supported version: {API_VERSION}\nServer version: {}", &server_info.api_version);
         }
@@ -92,13 +93,13 @@ fn main() {
                 args.server.clone(),
                 token,
                 Title::log_info(title)
-            ));
+            ); verified = false; continue;);
             let verification_set = handle_network_req!(get_verification_set_api(
                 args.server.clone(),
                 token,
                 args.depth,
                 &hash_chain_info
-            ));
+            ); verified = false; continue;);
             let page_verified = verify_page(&hash_chain_info, verification_set.iter(), &args);
             let mut url = args.server.clone();
             if let Ok(mut segments) = url.path_segments_mut() {
