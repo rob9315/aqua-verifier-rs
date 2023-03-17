@@ -1,13 +1,13 @@
 use std::fmt::Display;
 use std::{fs::File, path::PathBuf};
 
-use aqua_verifier::file_format::{HashChain, OfflineData};
+use aqua_verifier::api::{get_hash_chain_info, get_revision, get_revision_hashes, get_server_info};
+use aqua_verifier::api::{JsonResult, Title};
+use aqua_verifier::file_format::{HashChainInfo, OfflineData, Revision};
 use aqua_verifier::verify::{get_verification_set, verify_revision};
 use clap::{CommandFactory, Parser};
 
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+const API_VERSION: &str = "0.3.0";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -48,7 +48,16 @@ fn main() {
         }
         let mut verified = true;
         for page in data.pages.into_iter() {
-            verified &= verify_page(&page, &args);
+            match get_verification_set(&page, args.depth) {
+                Ok(verification_set) => {
+                    verified &=
+                        verify_page(&page.hash_chain_info, verification_set.into_iter(), &args);
+                }
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    verified = false;
+                }
+            };
         }
         print_verified(verified, filepath.display());
     } else {
@@ -56,7 +65,50 @@ fn main() {
             println!("{}", clap::Command::render_help(&mut Args::command()));
             return;
         }
-        for title in args.titles {}
+
+        macro_rules! handle_network_req {
+            ($($t:tt)*) => {
+                match $($t)*
+                    .expect("Failed to contact PKC.")
+                    .expect("Failed to parse response from PKC.") {
+                    JsonResult::Ok(k) => k,
+                    JsonResult::Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1)
+                    }
+                }
+            };
+        }
+
+        let token = args.token.as_deref();
+
+        let server_info = handle_network_req!(get_server_info(args.server.clone(), token));
+        if server_info.api_version != API_VERSION {
+            println!("Incompatible API version:\nCurrent supported version: {API_VERSION}\nServer version: {}", &server_info.api_version);
+        }
+        let mut verified = true;
+        for title in &args.titles {
+            let hash_chain_info = handle_network_req!(get_hash_chain_info(
+                args.server.clone(),
+                token,
+                Title::log_info(title)
+            ));
+            let verification_set = handle_network_req!(get_verification_set_api(
+                args.server.clone(),
+                token,
+                args.depth,
+                &hash_chain_info
+            ));
+            let page_verified = verify_page(&hash_chain_info, verification_set.iter(), &args);
+            let mut url = args.server.clone();
+            if let Ok(mut segments) = url.path_segments_mut() {
+                segments.push("index.php");
+                segments.push(title);
+            }
+            print_verified(verified, url);
+            verified &= page_verified;
+        }
+        print_verified(verified, format!("{:?} on {}", &args.titles, &args.server));
     };
 }
 
@@ -71,19 +123,21 @@ fn print_verified(verified: bool, src: impl Display) {
     );
 }
 
-fn verify_page(page: &HashChain, args: &Args) -> bool {
-    let verification_set = match get_verification_set(page, args.depth) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("{e:?}");
-            return false;
-        }
-    };
+fn verify_page<'i, I>(hash_chain_info: &HashChainInfo, verification_set: I, args: &Args) -> bool
+where
+    I: Iterator<Item = &'i Revision>,
+{
+    let verification_set: Vec<_> = verification_set.collect();
+
+    if verification_set.is_empty() {
+        eprintln!("No Revisions found for {}", hash_chain_info.title);
+        return false;
+    }
 
     println!(
         "Verifying {} Revisions for {}",
         verification_set.len(),
-        page.hash_chain_info.title
+        hash_chain_info.title
     );
 
     let mut verified = true;
@@ -102,4 +156,49 @@ fn verify_page(page: &HashChain, args: &Args) -> bool {
         verified &= bool::from(result);
     }
     verified
+}
+
+fn get_verification_set_api(
+    endpoint: reqwest::Url,
+    token: Option<&str>,
+    depth: Option<usize>,
+    hash_chain_info: &HashChainInfo,
+) -> reqwest::Result<serde_json::Result<JsonResult<Vec<Revision>>>> {
+    macro_rules! forward_errs {
+        ($($t:tt)*) => {
+            match $($t)*? {
+                Ok(JsonResult::Ok(k)) => k,
+                Ok(JsonResult::Err(e)) => return Ok(Ok(JsonResult::Err(e))),
+                Err(e) => return Ok(Err(e)),
+            }
+        };
+    }
+
+    let revision_hashes = forward_errs!(get_revision_hashes(
+        endpoint.clone(),
+        token,
+        &hash_chain_info.genesis_hash
+    ));
+    let height = depth
+        .map(|h| h.min(revision_hashes.len()))
+        .unwrap_or(revision_hashes.len());
+    let mut verification_set: Vec<std::mem::MaybeUninit<Revision>> = Vec::with_capacity(height);
+    unsafe {
+        // Safety: This is safe because the values are not used
+        verification_set.set_len(height);
+    };
+    let mut cur = &hash_chain_info.latest_verification_hash;
+    for i in 0..height {
+        let rev = forward_errs!(get_revision(endpoint.clone(), token, cur));
+        verification_set[height - i - 1] = std::mem::MaybeUninit::new(rev);
+        // Safety: this was just inserted
+        cur = unsafe {
+            &verification_set[height - i - 1]
+                .assume_init_ref()
+                .metadata
+                .previous_verification_hash
+        };
+    }
+    let verification_set: Vec<Revision> = unsafe { std::mem::transmute(verification_set) };
+    Ok(Ok(JsonResult::Ok(verification_set)))
 }
