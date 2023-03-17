@@ -105,7 +105,7 @@ fn main() {
                 segments.push("index.php");
                 segments.push(title);
             }
-            print_verified(verified, url);
+            print_verified(page_verified, url);
             verified &= page_verified;
         }
         print_verified(verified, format!("{:?} on {}", &args.titles, &args.server));
