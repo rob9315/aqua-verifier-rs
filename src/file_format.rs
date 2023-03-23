@@ -53,7 +53,7 @@ pub struct FileContent {
     pub data: String,
     pub filename: String,
     pub size: i32,
-    pub commend: String,
+    pub comment: String,
 }
 
 #[derive(Serialize, Deserialize)]
