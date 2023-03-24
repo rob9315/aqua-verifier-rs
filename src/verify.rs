@@ -268,7 +268,12 @@ impl ::std::fmt::Display for VerifyResult {
                 f.write_str(RESET)?;
             }
         }
-        // todo! the rest
+        if self.signature.is_some() && self.witness.is_some() {
+            f.write_str(INDENT)?;
+            f.write_str(WARNING_SIGN)?;
+            f.write_str(" Signature and Witness on the same file are independent from each other")?;
+        }
+        // todo! the rest?
         Ok(())
     }
 }
