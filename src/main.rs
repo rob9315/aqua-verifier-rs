@@ -39,7 +39,8 @@ fn main() {
 
     if let Some(filepath) = &args.file {
         let file = File::open(filepath).expect("Specified file not found");
-        let data: OfflineData = serde_json::from_reader(std::io::BufReader::new(&file)).expect("Misformatted JSON");
+        let data: OfflineData =
+            serde_json::from_reader(std::io::BufReader::new(&file)).expect("Misformatted JSON");
         if args.verbose {
             println!(
                 "Decoded input as:\n{}",
@@ -94,12 +95,19 @@ fn main() {
                 token,
                 Title::log_info(title)
             ); verified = false; continue;);
-            let verification_set = handle_network_req!(get_verification_set_api(
+            let verification_set = match handle_network_req!(get_verification_set_api(
                 args.server.clone(),
                 token,
                 args.depth,
                 &hash_chain_info
-            ); verified = false; continue;);
+            ); verified = false; continue;)
+            {
+                Ok(k) => k,
+                Err(e) => {
+                    eprintln!("Aborting Verification of {}: {e:?}", title);
+                    continue;
+                }
+            };
             let page_verified = verify_page(&hash_chain_info, verification_set.iter(), &args);
             let mut url = args.server.clone();
             if let Ok(mut segments) = url.path_segments_mut() {
@@ -165,12 +173,13 @@ where
     verified
 }
 
+#[allow(clippy::type_complexity)]
 fn get_verification_set_api(
     endpoint: reqwest::Url,
     token: Option<&str>,
     depth: Option<usize>,
     hash_chain_info: &HashChainInfo,
-) -> reqwest::Result<serde_json::Result<JsonResult<Vec<Revision>>>> {
+) -> reqwest::Result<serde_json::Result<JsonResult<Result<Vec<Revision>, String>>>> {
     macro_rules! forward_errs {
         ($($t:tt)*) => {
             match $($t)*? {
@@ -194,18 +203,15 @@ fn get_verification_set_api(
         // Safety: This is safe because the values are not used
         verification_set.set_len(height);
     };
-    let mut cur = &hash_chain_info.latest_verification_hash;
+    let mut cur = Some(hash_chain_info.latest_verification_hash);
     for i in 0..height {
-        let rev = forward_errs!(get_revision(endpoint.clone(), token, cur));
-        verification_set[height - i - 1] = std::mem::MaybeUninit::new(rev);
-        // Safety: this was just inserted
-        cur = unsafe {
-            &verification_set[height - i - 1]
-                .assume_init_ref()
-                .metadata
-                .previous_verification_hash
+        let Some(current) = &cur else {
+            return Ok(Ok(Ok(Err("Not all revisions included".to_string()))));
         };
+        let rev = forward_errs!(get_revision(endpoint.clone(), token, current));
+        cur = rev.metadata.previous_verification_hash;
+        verification_set[height - i - 1] = std::mem::MaybeUninit::new(rev);
     }
     let verification_set: Vec<Revision> = unsafe { std::mem::transmute(verification_set) };
-    Ok(Ok(JsonResult::Ok(verification_set)))
+    Ok(Ok(Ok(Ok(verification_set))))
 }

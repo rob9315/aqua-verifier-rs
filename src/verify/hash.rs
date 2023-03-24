@@ -77,7 +77,11 @@ hash_fn!(
     pub fn metadata_hash(metadata: &RevisionMetadata) {
         .domain_id
         + {format_time_stamp(&metadata.time_stamp).to_string()}
-        + .previous_verification_hash
+        + |hasher| {
+            if let Some(previous_verification_hash) = metadata.previous_verification_hash {
+                hasher.update(previous_verification_hash);
+            }
+        }
     }
 );
 hash_fn!(

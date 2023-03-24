@@ -29,10 +29,12 @@ pub struct SiteInfo {
 
 #[derive(Serialize, Deserialize)]
 pub struct HashChainInfo {
-    pub genesis_hash: String,
+    #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]
+    pub genesis_hash: Hash,
     pub domain_id: String,
     pub content: Option<String>,
-    pub latest_verification_hash: String,
+    #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]
+    pub latest_verification_hash: Hash,
     pub site_info: Option<SiteInfo>,
     pub title: String,
     pub namespace: i32,
@@ -43,7 +45,8 @@ pub struct HashChainInfo {
 pub struct HashChain {
     #[serde(flatten)]
     pub hash_chain_info: HashChainInfo,
-    pub revisions: HashMap<String, Revision>,
+    #[serde(deserialize_with = "custom_key_de", serialize_with = "custom_key_ser")]
+    pub revisions: HashMap<Hash, Revision>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -77,7 +80,8 @@ pub struct RevisionMetadata {
     #[serde(deserialize_with = "time_stamp_from_str")]
     #[serde(serialize_with = "time_stamp_to_str")]
     pub time_stamp: NaiveDateTime,
-    pub previous_verification_hash: String,
+    #[serde(deserialize_with = "opt_hash_de", serialize_with = "opt_hash_ser")]
+    pub previous_verification_hash: Option<Hash>,
     #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]
     pub metadata_hash: Hash,
     #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]

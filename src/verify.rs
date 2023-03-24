@@ -16,6 +16,7 @@ const LOCK: &str = "🔏";
 const WATCH: &str = "⌚";
 const INDENT: &str = "\n    ";
 const DIM: &str = "\x1b[2m";
+const RED: &str = "\x1b[31m";
 const RESET: &str = "\x1b[0m";
 
 pub fn get_verification_set(
@@ -24,14 +25,17 @@ pub fn get_verification_set(
 ) -> Result<Vec<&Revision>, String> {
     let revs = data.revisions.len();
     let height = depth.map(|d| d.min(revs)).unwrap_or(revs);
-    let mut cur = &data.hash_chain_info.latest_verification_hash;
+    let mut cur = Some(data.hash_chain_info.latest_verification_hash);
     let mut revs = vec![std::mem::MaybeUninit::uninit(); height];
     for i in 0..height {
-        let Some(rev) = data.revisions.get(cur) else {
-            return Err(format!("Failure getting revision {cur}"));
+        let Some(current) = &cur else {
+            return Err("Not all revisions included".to_string());
         };
+        let Some(rev) = data.revisions.get(current) else {
+            return Err(format!("Failure getting revision {}", hash_to_hex(current)));
+        };
+        cur = rev.metadata.previous_verification_hash;
         revs[height - i - 1] = std::mem::MaybeUninit::new(rev);
-        cur = &rev.metadata.previous_verification_hash;
     }
     Ok(unsafe { std::mem::transmute(revs) })
 }
@@ -44,6 +48,38 @@ pub fn verify_revision(
     let now = Instant::now();
     let correct = verify_revision_without_elapsed(rev, prev, verify_merkle_proof);
     (correct, now.elapsed())
+}
+
+#[derive(Debug)]
+pub struct ChainConsistency {
+    prev: Option<Hash>,
+    this: Option<Hash>,
+}
+impl From<&ChainConsistency> for bool {
+    fn from(value: &ChainConsistency) -> Self {
+        value.prev == value.this
+    }
+}
+impl ::std::fmt::Display for ChainConsistency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let err = match (&self.this, &self.prev) {
+            (None, Some(_)) => {
+                " Chain INCONSISTENT (current revision doesn't point to previous one)"
+            }
+            (Some(_), None) => {
+                " Chain INCONSISTENT (current revision points at missing previous revision)"
+            }
+            (Some(a), Some(b)) if a != b => {
+                " Chain INCONSISTENT (current revision points to different previous one)"
+            }
+            _ => return Ok(()),
+        };
+        f.write_str(INDENT)?;
+        f.write_str(RED)?;
+        f.write_str(CROSS)?;
+        f.write_str(err)?;
+        f.write_str(RESET)
+    }
 }
 
 pub struct HashResult {
@@ -60,22 +96,21 @@ impl HashResult {
         name: &str,
         f: &mut ::std::fmt::Formatter,
     ) -> ::std::fmt::Result {
-        use ::std::fmt::Write;
         let indent = if show_if_correct { "  " } else { INDENT };
         if self.matches() {
             if show_if_correct {
                 f.write_str(indent)?;
                 f.write_str(CHECKMARK)?;
-                f.write_char(' ')?;
                 f.write_str(name)?;
                 f.write_str(" hash matches")?;
             }
         } else {
             f.write_str(indent)?;
+            f.write_str(RED)?;
             f.write_str(CROSS)?;
-            f.write_char(' ')?;
             f.write_str(name)?;
             f.write_str(" hash does not match")?;
+            f.write_str(RESET)?;
         }
         Ok(())
     }
@@ -123,9 +158,11 @@ impl ::std::fmt::Display for SignatureResult {
             Ok(computed) => {
                 if computed == self.expected_public_key {
                     if !self.verify_wallet_address() {
+                        f.write_str(RED)?;
                         f.write_str(CROSS)?;
                         f.write_str(LOCK)?;
                         f.write_str(" Wallet Address manipulated")?;
+                        f.write_str(RESET)?;
                         return Ok(());
                     }
                     f.write_str(CHECKMARK)?;
@@ -133,16 +170,20 @@ impl ::std::fmt::Display for SignatureResult {
                     f.write_str(" Signed by ")?;
                     wallet_to_hex(self.listed_wallet_address).fmt(f)?;
                 } else {
+                    f.write_str(RED)?;
                     f.write_str(CROSS)?;
                     f.write_str(LOCK)?;
                     f.write_str(" Signature INVALID")?;
+                    f.write_str(RESET)?;
                 }
             }
             Err(err) => {
+                f.write_str(RED)?;
                 f.write_str(CROSS)?;
                 f.write_str(LOCK)?;
                 f.write_str(" Error when trying to check Signature: ")?;
                 err.fmt(f)?;
+                f.write_str(RESET)?;
             }
         };
         Ok(())
@@ -169,6 +210,7 @@ impl ::std::fmt::Debug for SignatureResult {
 
 #[derive(Debug)]
 pub struct VerifyResult {
+    pub chain_consistency: ChainConsistency,
     pub metadata: HashResult,
     pub file_hash: Option<Result<HashResult, FileHashError>>,
     pub content: HashResult,
@@ -179,7 +221,8 @@ pub struct VerifyResult {
 
 impl ::std::fmt::Display for VerifyResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.verification.to_str(true, "Verification", f)?;
+        self.verification.to_str(true, " Verification", f)?;
+        self.chain_consistency.fmt(f)?;
         match &self.file_hash {
             Some(Ok(file_hash)) => {
                 f.write_str("\n  ")?;
@@ -187,13 +230,15 @@ impl ::std::fmt::Display for VerifyResult {
             }
             Some(Err(_e)) => {
                 f.write_str(INDENT)?;
+                f.write_str(RED)?;
                 f.write_str(CROSS)?;
                 f.write_str(" File exists but Hash MISSING")?;
+                f.write_str(RESET)?;
             }
             None => {}
         }
-        self.content.to_str(false, "Content", f)?;
-        self.metadata.to_str(false, "Metadata", f)?;
+        self.content.to_str(false, " Content", f)?;
+        self.metadata.to_str(false, " Metadata", f)?;
         match &self.signature {
             Some(signature) => signature.fmt(f)?,
             None => {
@@ -280,6 +325,11 @@ fn verify_revision_without_elapsed(
     prev: Option<&Revision>,
     verify_merkle_proof: bool,
 ) -> VerifyResult {
+    let prev_verification = ChainConsistency {
+        prev: prev.map(|prev| prev.metadata.verification_hash),
+        this: rev.metadata.previous_verification_hash,
+    };
+
     let metadata = HashResult {
         computed: metadata_hash(&rev.metadata),
         expected: rev.metadata.metadata_hash,
@@ -313,17 +363,11 @@ fn verify_revision_without_elapsed(
             expected: witness.witness_event_verification_hash,
         },
         lookup: witness.lookup(),
-        merkle: verify_merkle_proof.then(|| {
-            if rev.metadata.verification_hash == witness.domain_snapshot_genesis_hash {
-                // DomainSnapshot
-                true
-            } else {
-                witness.merkle_proof(&rev.metadata.verification_hash)
-            }
-        }),
+        merkle: verify_merkle_proof.then(|| witness.merkle_proof(&rev.metadata.verification_hash)),
     });
 
     VerifyResult {
+        chain_consistency: prev_verification,
         metadata,
         file_hash,
         content,

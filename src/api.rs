@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::file_format::{HashChainInfo, Revision};
+use crate::{file_format::{HashChainInfo, Revision, hash_to_hex}, verify::hash::Hash};
 
 fn mut_endpoint(endpoint: &mut reqwest::Url) {
     if let Ok(mut segments) = endpoint.path_segments_mut() {
@@ -55,12 +55,12 @@ pub fn get_server_info(
 pub fn get_revision(
     mut endpoint: reqwest::Url,
     token: Option<&str>,
-    verification_hash: &str,
+    verification_hash: &Hash,
 ) -> reqwest::Result<serde_json::Result<JsonResult<Revision>>> {
     mut_endpoint(&mut endpoint);
     if let Ok(mut segments) = endpoint.path_segments_mut() {
         segments.push("get_revision");
-        segments.push(verification_hash);
+        segments.push(hash_to_hex(verification_hash).as_ref());
     }
     parse!(do_req(endpoint, token))
 }
@@ -68,12 +68,12 @@ pub fn get_revision(
 pub fn get_revision_hashes(
     mut endpoint: reqwest::Url,
     token: Option<&str>,
-    verification_hash: &str,
+    verification_hash: &Hash,
 ) -> reqwest::Result<serde_json::Result<JsonResult<Vec<String>>>> {
     mut_endpoint(&mut endpoint);
     if let Ok(mut segments) = endpoint.path_segments_mut() {
         segments.push("get_revision_hashes");
-        segments.push(verification_hash);
+        segments.push(hash_to_hex(verification_hash).as_ref());
     }
     parse!(do_req(endpoint, token))
 }

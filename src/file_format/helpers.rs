@@ -3,7 +3,7 @@ use chrono::{
     NaiveDateTime,
 };
 use libsecp256k1::{PublicKey, RecoveryId, Signature};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serializer};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::verify::hash::Hash;
 
@@ -148,6 +148,27 @@ pub(crate) fn opt_hash_ser<S: Serializer>(
         Some(hash) => hash_ser(hash, serializer),
         None => serializer.serialize_none(),
     }
+}
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize)]
+#[repr(transparent)]
+struct HashWrapper(#[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")] Hash);
+
+pub(crate) fn custom_key_de<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<std::collections::HashMap<Hash, T>, D::Error> {
+    let v: ::std::collections::HashMap<HashWrapper, T> = Deserialize::deserialize(deserializer)?;
+    // Safety: this is safe because Wrapper is annotated with repr(transparent)
+    Ok(unsafe { ::std::mem::transmute(v) })
+}
+
+pub(crate) fn custom_key_ser<S: Serializer, T: Serialize>(
+    map: &::std::collections::HashMap<Hash, T>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    // Safety: this is safe because Wrapper is annotated with repr(transparent)
+    let wrapped_map: &::std::collections::HashMap<HashWrapper, T> =
+        unsafe { ::std::mem::transmute(map) };
+    wrapped_map.serialize(serializer)
 }
 
 pub fn from_prefixed_hex<const SIZE: usize>(s: &str) -> Option<[u8; SIZE]> {
