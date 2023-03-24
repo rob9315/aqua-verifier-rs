@@ -138,8 +138,14 @@ where
 {
     let verification_set: Vec<_> = verification_set.collect();
 
-    if verification_set.is_empty() {
-        eprintln!("No Revisions found for {}", hash_chain_info.title);
+    let Some(genesis) = verification_set.get(0) else {
+        use aqua_verifier::verify::*;
+        eprintln!("{RED}{CROSS}No Revisions found for {}{RESET}", hash_chain_info.title);
+        return false;
+    };
+    if genesis.metadata.verification_hash != hash_chain_info.genesis_hash {
+        use aqua_verifier::verify::*;
+        eprintln!("{RED}{CROSS}First Revision doesn't match Genesis Hash{RESET}");
         return false;
     }
 

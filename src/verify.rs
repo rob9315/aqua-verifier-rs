@@ -9,15 +9,15 @@ use self::hash::{FileHashError, Hash};
 
 mod witness;
 
-const CHECKMARK: &str = "✅";
-const WARNING_SIGN: &str = "⚠️";
-const CROSS: &str = "❌";
-const LOCK: &str = "🔏";
-const WATCH: &str = "⌚";
-const INDENT: &str = "\n    ";
-const DIM: &str = "\x1b[2m";
-const RED: &str = "\x1b[31m";
-const RESET: &str = "\x1b[0m";
+pub const CHECKMARK: &str = "✅";
+pub const WARNING_SIGN: &str = "⚠️";
+pub const CROSS: &str = "❌";
+pub const LOCK: &str = "🔏";
+pub const WATCH: &str = "⌚";
+pub const INDENT: &str = "\n    ";
+pub const DIM: &str = "\x1b[2m";
+pub const RED: &str = "\x1b[31m";
+pub const RESET: &str = "\x1b[0m";
 
 pub fn get_verification_set(
     data: &HashChain,
@@ -50,7 +50,6 @@ pub fn verify_revision(
     (correct, now.elapsed())
 }
 
-#[derive(Debug)]
 pub struct ChainConsistency {
     prev: Option<Hash>,
     this: Option<Hash>,
@@ -58,6 +57,14 @@ pub struct ChainConsistency {
 impl From<&ChainConsistency> for bool {
     fn from(value: &ChainConsistency) -> Self {
         value.prev == value.this
+    }
+}
+impl ::std::fmt::Debug for ChainConsistency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChainConsistency")
+            .field("prev", &self.prev.as_ref().map(hash_to_hex))
+            .field("this", &self.this.as_ref().map(hash_to_hex))
+            .finish()
     }
 }
 impl ::std::fmt::Display for ChainConsistency {
