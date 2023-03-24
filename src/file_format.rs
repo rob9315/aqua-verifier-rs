@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 mod helpers;
 use helpers::*;
-pub use helpers::{format_time_stamp, from_hex, hash_to_hex, pubkey_to_hex, signature_to_hex};
+pub use helpers::{
+    format_time_stamp, from_hex, hash_to_hex, pubkey_to_hex, signature_to_hex, wallet_to_hex,
+};
 
 use crate::verify::hash::Hash;
 
@@ -82,21 +84,20 @@ pub struct RevisionMetadata {
     pub verification_hash: Hash,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RevisionSignature {
-    #[serde(
-        deserialize_with = "eth_signature_de",
-        serialize_with = "eth_signature_ser"
-    )]
+    #[serde(deserialize_with = "eth_signature_de")]
+    #[serde(serialize_with = "eth_signature_ser")]
     pub signature: (libsecp256k1::Signature, libsecp256k1::RecoveryId),
     #[serde(deserialize_with = "eth_pubkey_de", serialize_with = "eth_pubkey_ser")]
     pub public_key: libsecp256k1::PublicKey,
-    pub wallet_address: String,
+    #[serde(deserialize_with = "wallet_de", serialize_with = "wallet_ser")]
+    pub wallet_address: [u8; 20],
     #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]
     pub signature_hash: Hash,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MerkleNode {
     pub witness_event_id: i32,
     pub depth: usize,
@@ -108,7 +109,7 @@ pub struct MerkleNode {
     pub successor: Hash,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RevisionWitness {
     pub witness_event_id: i32,
     pub domain_id: String,
@@ -132,7 +133,7 @@ pub struct RevisionWitness {
 
 #[derive(Serialize, Deserialize)]
 pub struct Revision {
-    pub verification_context: VerificationContext,
+    // pub verification_context: VerificationContext,
     pub content: RevisionContent,
     pub metadata: RevisionMetadata,
     #[serde(default, deserialize_with = "none_on_failed_parse")]

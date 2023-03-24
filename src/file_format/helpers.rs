@@ -45,9 +45,9 @@ where
 }
 
 pub(crate) fn base64de<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD};
+    use base64::prelude::{Engine, BASE64_STANDARD};
     let s: String = Deserialize::deserialize(deserializer)?;
-    BASE64_STANDARD_NO_PAD
+    BASE64_STANDARD
         .decode(s)
         .map_err(serde::de::Error::custom)
 }
@@ -56,8 +56,8 @@ pub(crate) fn base64ser<S: Serializer>(
     bytes: &[u8],
     ser: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    use base64::prelude::{Engine, BASE64_STANDARD_NO_PAD};
-    ser.serialize_str(&BASE64_STANDARD_NO_PAD.encode(bytes))
+    use base64::prelude::{Engine, BASE64_STANDARD};
+    ser.serialize_str(&BASE64_STANDARD.encode(bytes))
 }
 
 #[repr(C)]
@@ -107,6 +107,20 @@ pub(crate) fn eth_pubkey_ser<S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     let s = pubkey_to_hex(pubkey);
+    serializer.serialize_str(s.as_ref())
+}
+
+pub(crate) fn wallet_de<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 20], D::Error> {
+    const INVALID_WALLET: &str = "Invalid wallet address";
+    let s = String::deserialize(deserializer)?;
+    from_prefixed_hex(&s).ok_or_else(|| serde::de::Error::custom(INVALID_WALLET))
+}
+
+pub(crate) fn wallet_ser<S: Serializer>(
+    wallet_address: &[u8; 20],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let s = wallet_to_hex(*wallet_address);
     serializer.serialize_str(s.as_ref())
 }
 
@@ -175,9 +189,14 @@ impl<const X: usize> ::std::fmt::Display for StackStr<X> {
         f.write_str(self.as_ref())
     }
 }
+impl<const X: usize> ::std::fmt::Debug for StackStr<X> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
 macro_rules! into_prefixed_hex {
     ($vis:vis $ident:ident $($s:tt)*) => {
-        $vis fn $ident(arr: [u8; $($s)*]) -> impl AsRef<str> + AsRef<[u8]> + AsRef<[u8; 2 + 2 * ($($s)*)]> + ::std::fmt::Display {
+        $vis fn $ident(arr: [u8; $($s)*]) -> impl AsRef<str> + AsRef<[u8]> + AsRef<[u8; 2 + 2 * ($($s)*)]> + ::std::fmt::Display + ::std::fmt::Debug {
             let mut s = [0u8; 2 + 2 * ($($s)*)];
             s[0] = b'0';
             s[1] = b'x';
@@ -203,9 +222,10 @@ pub fn pubkey_to_hex(pubkey: &PublicKey) -> impl AsRef<str> + AsRef<[u8]> {
     into_prefixed_hex!(raw_to_hex libsecp256k1::util::SIGNATURE_SIZE + 1);
     raw_to_hex(pubkey.serialize())
 }
+into_prefixed_hex!(pub wallet_to_hex 20);
 pub fn hash_to_hex(
     hash: &Hash,
-) -> impl AsRef<str> + AsRef<[u8]> + AsRef<[u8; 64 * 2]> + ::std::fmt::Display {
+) -> impl AsRef<str> + AsRef<[u8]> + AsRef<[u8; 64 * 2]> + ::std::fmt::Display + ::std::fmt::Debug {
     let mut data = [0u8; 64 * 2];
     // Safety: data is exactly the right size for the hex output
     unsafe {

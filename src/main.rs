@@ -39,7 +39,7 @@ fn main() {
 
     if let Some(filepath) = &args.file {
         let file = File::open(filepath).expect("Specified file not found");
-        let data: OfflineData = serde_json::from_reader(&file).expect("Misformatted JSON");
+        let data: OfflineData = serde_json::from_reader(std::io::BufReader::new(&file)).expect("Misformatted JSON");
         if args.verbose {
             println!(
                 "Decoded input as:\n{}",
@@ -153,7 +153,10 @@ where
             .and_then(|j| verification_set.get(j))
             .copied();
         let (result, time) = verify_revision(rev, prev, !args.ignore_merkle_proof);
-        println!("{result:#?} {time:?}");
+        if args.verbose {
+            eprintln!("{result:#?}");
+        }
+        println!("{result:#}\nin {time:?}");
         verified &= bool::from(result);
     }
     verified

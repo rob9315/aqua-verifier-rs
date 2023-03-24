@@ -8,10 +8,17 @@ use crate::file_format::{
     FileContent, Revision, RevisionContent, RevisionMetadata, RevisionSignature, RevisionWitness,
 };
 
+use super::SignatureResult;
+
 pub type Hasher = sha3::Sha3_512;
 pub type Hash = Output<Hasher>;
 
 pub struct FileHashError;
+impl ::std::fmt::Debug for FileHashError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("File hash missing").finish()
+    }
+}
 impl RevisionContent {
     pub fn expected_file_hash(&self) -> Result<Hash, FileHashError> {
         let s = self.content.get("file_hash").ok_or(FileHashError)?;
@@ -20,7 +27,7 @@ impl RevisionContent {
 }
 
 impl RevisionSignature {
-    pub fn verify_current(&self, verification_hash: &Hash) -> bool {
+    pub fn verify_current(&self, verification_hash: &Hash) -> SignatureResult {
         let hash = sha3::Keccak256::default()
             .chain_update(
                 "\x19Ethereum Signed Message:\n177I sign the following page verification_hash: [0x",
@@ -29,8 +36,12 @@ impl RevisionSignature {
             .chain_update("]")
             .finalize();
         let message = libsecp256k1::Message::parse(&<[u8; 32]>::from(hash));
-        let Ok(pubkey) = libsecp256k1::recover(&message, &self.signature.0, &self.signature.1) else {return false};
-        pubkey == self.public_key
+        let computed = libsecp256k1::recover(&message, &self.signature.0, &self.signature.1);
+        SignatureResult {
+            listed_wallet_address: self.wallet_address,
+            computed_public_key: computed,
+            expected_public_key: self.public_key,
+        }
     }
 }
 

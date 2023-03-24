@@ -1,14 +1,22 @@
 use std::time::{Duration, Instant};
 
-use crate::file_format::{HashChain, Revision};
+use crate::file_format::{hash_to_hex, wallet_to_hex, HashChain, Revision};
 
 pub mod hash;
-use hash::{
-    content_hash, event_verification_hash, file_hash, metadata_hash, signature_hash,
-    verification_hash, witness_hash,
-};
+use hash::{content_hash, event_verification_hash, file_hash, metadata_hash, verification_hash};
+
+use self::hash::{FileHashError, Hash};
 
 mod witness;
+
+const CHECKMARK: &str = "✅";
+const WARNING_SIGN: &str = "⚠️";
+const CROSS: &str = "❌";
+const LOCK: &str = "🔏";
+const WATCH: &str = "⌚";
+const INDENT: &str = "\n    ";
+const DIM: &str = "\x1b[2m";
+const RESET: &str = "\x1b[0m";
 
 pub fn get_verification_set(
     data: &HashChain,
@@ -38,38 +46,192 @@ pub fn verify_revision(
     (correct, now.elapsed())
 }
 
+pub struct HashResult {
+    computed: Hash,
+    expected: Hash,
+}
+impl HashResult {
+    fn matches(&self) -> bool {
+        self.computed == self.expected
+    }
+    fn to_str(
+        &self,
+        show_if_correct: bool,
+        name: &str,
+        f: &mut ::std::fmt::Formatter,
+    ) -> ::std::fmt::Result {
+        use ::std::fmt::Write;
+        let indent = if show_if_correct { "  " } else { INDENT };
+        if self.matches() {
+            if show_if_correct {
+                f.write_str(indent)?;
+                f.write_str(CHECKMARK)?;
+                f.write_char(' ')?;
+                f.write_str(name)?;
+                f.write_str(" hash matches")?;
+            }
+        } else {
+            f.write_str(indent)?;
+            f.write_str(CROSS)?;
+            f.write_char(' ')?;
+            f.write_str(name)?;
+            f.write_str(" hash does not match")?;
+        }
+        Ok(())
+    }
+}
+impl ::std::fmt::Debug for HashResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HashResult")
+            .field("computed", &hash_to_hex(&self.computed))
+            .field("expected", &hash_to_hex(&self.expected))
+            .finish()
+    }
+}
+
+impl From<HashResult> for bool {
+    fn from(value: HashResult) -> Self {
+        value.computed == value.expected
+    }
+}
+
+pub struct SignatureResult {
+    listed_wallet_address: [u8; 20],
+    computed_public_key: Result<libsecp256k1::PublicKey, libsecp256k1::Error>,
+    expected_public_key: libsecp256k1::PublicKey,
+}
+impl SignatureResult {
+    pub fn verify_wallet_address(&self) -> bool {
+        use sha3::Digest;
+        let pubkey = self.expected_public_key.serialize();
+        pubkey[0] == 0x04
+            && sha3::Keccak256::digest(&pubkey[1..])[12..] == self.listed_wallet_address
+    }
+}
+impl From<SignatureResult> for bool {
+    fn from(value: SignatureResult) -> Self {
+        value
+            .computed_public_key
+            .map(|computed| computed == value.expected_public_key && value.verify_wallet_address())
+            .unwrap_or(false)
+    }
+}
+impl ::std::fmt::Display for SignatureResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(INDENT)?;
+        match self.computed_public_key {
+            Ok(computed) => {
+                if computed == self.expected_public_key {
+                    if !self.verify_wallet_address() {
+                        f.write_str(CROSS)?;
+                        f.write_str(LOCK)?;
+                        f.write_str(" Wallet Address manipulated")?;
+                        return Ok(());
+                    }
+                    f.write_str(CHECKMARK)?;
+                    f.write_str(LOCK)?;
+                    f.write_str(" Signed by ")?;
+                    wallet_to_hex(self.listed_wallet_address).fmt(f)?;
+                } else {
+                    f.write_str(CROSS)?;
+                    f.write_str(LOCK)?;
+                    f.write_str(" Signature INVALID")?;
+                }
+            }
+            Err(err) => {
+                f.write_str(CROSS)?;
+                f.write_str(LOCK)?;
+                f.write_str(" Error when trying to check Signature: ")?;
+                err.fmt(f)?;
+            }
+        };
+        Ok(())
+    }
+}
+impl ::std::fmt::Debug for SignatureResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignatureResult")
+            .field(
+                "listed_wallet_address",
+                &wallet_to_hex(self.listed_wallet_address),
+            )
+            .field("computed_public_key", &self.computed_public_key)
+            .field("expected_public_key", &self.expected_public_key)
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct VerifyResult {
-    pub metadata: bool,
-    pub file_hash: Option<bool>,
-    pub content: bool,
-    pub prev_signature: Option<bool>,
-    pub prev_witness: Option<bool>,
+    pub metadata: HashResult,
+    pub file_hash: Option<Result<HashResult, FileHashError>>,
+    pub content: HashResult,
+    pub verification: HashResult,
+    pub signature: Option<SignatureResult>,
     pub witness: Option<WitnessResult>,
-    pub signature: Option<bool>,
-    pub verification: bool,
+}
+
+impl ::std::fmt::Display for VerifyResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.verification.to_str(true, "Verification", f)?;
+        match &self.file_hash {
+            Some(Ok(file_hash)) => {
+                file_hash.to_str(false, "📄 File", f)?;
+            }
+            Some(Err(_e)) => {
+                f.write_str(INDENT)?;
+                f.write_str(CROSS)?;
+                f.write_str(" File exists but Hash MISSING")?;
+            }
+            None => {}
+        }
+        self.content.to_str(false, "Content", f)?;
+        self.metadata.to_str(false, "Metadata", f)?;
+        match &self.signature {
+            Some(signature) => signature.fmt(f)?,
+            None => {
+                f.write_str(INDENT)?;
+                f.write_str(DIM)?;
+                f.write_str(WARNING_SIGN)?;
+                f.write_str(" Not signed")?;
+                f.write_str(RESET)?;
+            }
+        }
+        match &self.witness {
+            Some(witness) => {
+                witness.fmt(f)?;
+            }
+            None => {
+                f.write_str(INDENT)?;
+                f.write_str(DIM)?;
+                f.write_str(WARNING_SIGN)?;
+                f.write_str(" Not witnessed")?;
+                f.write_str(RESET)?;
+            }
+        }
+        // todo! the rest
+        Ok(())
+    }
 }
 
 impl From<VerifyResult> for bool {
     fn from(value: VerifyResult) -> Self {
-        let mut correct = value.metadata && value.content && value.verification;
+        let mut correct =
+            value.metadata.into() && value.content.into() && value.verification.into();
         if let Some(file_hash) = value.file_hash {
-            correct &= file_hash;
-        }
-        if let Some(prev_signature) = value.prev_signature {
-            correct &= prev_signature;
-        }
-        if let Some(prev_witness) = value.prev_witness {
-            correct &= prev_witness
+            correct &= match file_hash {
+                Ok(file_hash) => file_hash.into(),
+                Err(_) => false,
+            };
         }
         if let Some(witness) = value.witness {
-            correct &= witness.verification && matches!(witness.lookup, Ok(true));
+            correct &= witness.verification.into() && matches!(witness.lookup, Ok(true));
             if let Some(merkle) = witness.merkle {
                 correct &= merkle
             }
         }
         if let Some(signature) = value.signature {
-            correct &= signature
+            correct &= bool::from(signature)
         }
         correct
     }
@@ -77,9 +239,32 @@ impl From<VerifyResult> for bool {
 
 #[derive(Debug)]
 pub struct WitnessResult {
-    pub verification: bool,
+    pub verification: HashResult,
     pub lookup: Result<bool, std::io::Error>,
     pub merkle: Option<bool>,
+}
+
+impl ::std::fmt::Display for WitnessResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let verification = self.verification.matches();
+        if verification
+            && self.lookup.as_ref().map_err(drop).copied().unwrap_or(false)
+            && self.merkle.unwrap_or(true)
+        {
+            f.write_str(CHECKMARK)?;
+            f.write_str(WATCH)?;
+            f.write_str(" Witness event verification hash has been verified via etherscan.io")?;
+            if self.merkle.is_none() {
+                f.write_str(" (")?;
+                f.write_str(WARNING_SIGN)?;
+                f.write_str(" Merkle Check has been omitted)")?;
+            }
+            return Ok(());
+        }
+
+        // todo! the rest
+        Ok(())
+    }
 }
 
 fn verify_revision_without_elapsed(
@@ -87,54 +272,38 @@ fn verify_revision_without_elapsed(
     prev: Option<&Revision>,
     verify_merkle_proof: bool,
 ) -> VerifyResult {
-    // verify metadata hash
-    let metadata = metadata_hash(&rev.metadata) == rev.metadata.metadata_hash;
+    let metadata = HashResult {
+        computed: metadata_hash(&rev.metadata),
+        expected: rev.metadata.metadata_hash,
+    };
 
-    // verify file hash if there is a file
+    let file_hash = rev.content.file.as_ref().map(|file| {
+        rev.content.expected_file_hash().map(|expected| HashResult {
+            computed: file_hash(file),
+            expected,
+        })
+    });
 
-    let file_hash = rev.content.file.as_ref().map(|file|
-        matches!(rev.content.expected_file_hash(), Ok(expected) if expected == file_hash(file))
-    );
+    let content = HashResult {
+        computed: content_hash(&rev.content),
+        expected: rev.content.content_hash,
+    };
 
-    // verify content hash
-    let content = content_hash(&rev.content) == rev.content.content_hash;
+    let verification = HashResult {
+        computed: verification_hash(rev, prev),
+        expected: rev.metadata.verification_hash,
+    };
 
-    let prev_witness;
-    let prev_signature;
-    if let Some(prev) = prev {
-        // verify previous signature if there is one
-        prev_signature = if let Some(signature) = &prev.signature {
-            Some(signature_hash(signature) == signature.signature_hash)
-        } else {
-            // Previous signature data not found
-            rev.verification_context
-                .has_previous_signature
-                .then_some(false)
-        };
-        // verify previous witness
-        prev_witness = if let Some(witness) = &prev.witness {
-            Some(witness_hash(witness) == witness.witness_hash)
-        } else {
-            // Previous witness data not found
-            rev.verification_context
-                .has_previous_witness
-                .then_some(false)
-        };
-    } else {
-        // Revision has previous signature but no previous revision provided to validate
-        prev_signature = rev
-            .verification_context
-            .has_previous_signature
-            .then_some(false);
-        // Revision has previous witness but no previous revision provided to validate
-        prev_witness = rev
-            .verification_context
-            .has_previous_witness
-            .then_some(false);
-    }
+    let signature = rev
+        .signature
+        .as_ref()
+        .map(|signature| signature.verify_current(&rev.metadata.verification_hash));
 
     let witness = rev.witness.as_ref().map(|witness| WitnessResult {
-        verification: event_verification_hash(witness) == witness.witness_event_verification_hash,
+        verification: HashResult {
+            computed: event_verification_hash(witness),
+            expected: witness.witness_event_verification_hash,
+        },
         lookup: witness.lookup(),
         merkle: verify_merkle_proof.then(|| {
             if rev.metadata.verification_hash == witness.domain_snapshot_genesis_hash {
@@ -146,21 +315,12 @@ fn verify_revision_without_elapsed(
         }),
     });
 
-    let signature = rev
-        .signature
-        .as_ref()
-        .map(|signature| signature.verify_current(&rev.metadata.verification_hash));
-
-    let verification = verification_hash(rev, prev) == rev.metadata.verification_hash;
-
     VerifyResult {
         metadata,
         file_hash,
         content,
-        prev_signature,
-        prev_witness,
-        witness,
-        signature,
         verification,
+        signature,
+        witness,
     }
 }
