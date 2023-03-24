@@ -2,23 +2,20 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::{
-    file_format::{MerkleNode, RevisionWitness},
-    verify::hash::hash_eq,
-};
+use crate::file_format::{from_hex, hash_to_hex, MerkleNode, RevisionWitness};
 
-use super::hash::Hasher;
+use super::hash::{Hash, Hasher};
 
 fn reqwest_io(err: reqwest::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, err)
 }
 
-fn verify_merkle_proof(merkle_nodes: &[MerkleNode], verification_hash: &str) -> bool {
+fn verify_merkle_proof(merkle_nodes: &[MerkleNode], verification_hash: &Hash) -> bool {
     if merkle_nodes.is_empty() {
         return false;
     }
 
-    let mut successor: Option<&str> = None;
+    let mut successor: Option<&Hash> = None;
     for node in merkle_nodes {
         if let Some(successor) = successor {
             if node.left_leaf.as_ref().map(|a| &a[..]) != Some(successor)
@@ -39,14 +36,14 @@ fn verify_merkle_proof(merkle_nodes: &[MerkleNode], verification_hash: &str) -> 
                 let mut hasher = Hasher::new();
                 hasher.update(left);
                 hasher.update(right);
-                hash_eq(&hasher.finalize(), &node.successor)
+                hasher.finalize() == node.successor
             }
             _ => unreachable!(),
         };
         if !successor_matches {
             return false;
         }
-        successor = Some(&node.successor[..]);
+        successor = Some(&node.successor);
     }
 
     true
@@ -66,7 +63,7 @@ impl RevisionWitness {
             &self.witness_event_verification_hash,
         )
     }
-    pub fn merkle_proof(&self, verification_hash: &str) -> bool {
+    pub fn merkle_proof(&self, verification_hash: &Hash) -> bool {
         verify_merkle_proof(&self.structured_merkle_proof, verification_hash)
     }
 }
@@ -109,11 +106,15 @@ const ETHERSCAN_TIMEOUT: Duration = Duration::from_millis(300);
 
 fn check_etherscan(
     network: &WitnessNetwork,
-    event_transaction_hash: &str,
-    event_verification_hash: &str,
+    event_transaction_hash: &Hash,
+    event_verification_hash: &Hash,
 ) -> Result<bool, std::io::Error> {
     let resp = reqwest::blocking::Client::new()
-        .get(format!("{}/{event_transaction_hash}", network.address()))
+        .get(format!(
+            "{}/{}",
+            network.address(),
+            hash_to_hex(event_transaction_hash)
+        ))
         .send()
         .map_err(reqwest_io)?;
     let data = resp.bytes().map_err(reqwest_io)?;
@@ -144,5 +145,9 @@ fn check_etherscan(
         return Ok(false);
     };
 
-    Ok(hash.to_lowercase() == event_verification_hash.to_lowercase())
+    let Some(hash) = from_hex(hash) else {
+        return Ok(false);
+    };
+
+    Ok(&Hash::from(hash) == event_verification_hash)
 }

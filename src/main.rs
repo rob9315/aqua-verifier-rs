@@ -3,7 +3,7 @@ use std::{fs::File, path::PathBuf};
 
 use aqua_verifier::api::{get_hash_chain_info, get_revision, get_revision_hashes, get_server_info};
 use aqua_verifier::api::{JsonResult, Title};
-use aqua_verifier::file_format::{HashChainInfo, OfflineData, Revision};
+use aqua_verifier::file_format::{hash_to_hex, HashChainInfo, OfflineData, Revision};
 use aqua_verifier::verify::{get_verification_set, verify_revision};
 use clap::{CommandFactory, Parser};
 
@@ -69,8 +69,8 @@ fn main() {
         macro_rules! handle_network_req {
             ($e:expr $(; $($u:tt)*)?) => {
                 match $e
-                    .expect("Failed to contact PKC.")
-                    .expect("Failed to parse response from PKC.") {
+                    .expect("Failed to contact PKC")
+                    .expect("Failed to parse response from PKC") {
                     JsonResult::Ok(k) => k,
                     JsonResult::Err(e) => {
                         eprintln!("{e}");
@@ -146,7 +146,7 @@ where
         println!(
             "{}. Verification of {}",
             i + 1,
-            rev.metadata.verification_hash
+            hash_to_hex(&rev.metadata.verification_hash)
         );
         let prev = i
             .checked_sub(1)
