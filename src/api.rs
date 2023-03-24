@@ -16,7 +16,7 @@ fn do_req(url: reqwest::Url, token: Option<&str>) -> reqwest::Result<reqwest::bl
         .get(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json");
     if let Some(token) = token {
-        builder = builder.header(reqwest::header::AUTHORIZATION, format!("Bearer{token}"));
+        builder = builder.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
     }
     builder.send()
 }
