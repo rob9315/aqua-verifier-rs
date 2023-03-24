@@ -79,7 +79,7 @@ hash_fn!(
         + {format_time_stamp(&metadata.time_stamp).to_string()}
         + |hasher| {
             if let Some(previous_verification_hash) = metadata.previous_verification_hash {
-                hasher.update(previous_verification_hash);
+                hasher.update(hash_to_hex(&previous_verification_hash));
             }
         }
     }
