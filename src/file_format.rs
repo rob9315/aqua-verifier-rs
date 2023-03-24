@@ -124,8 +124,7 @@ pub struct RevisionWitness {
     pub witness_event_verification_hash: Hash,
     pub witness_network: String,
     pub smart_contract_address: String,
-    #[serde(deserialize_with = "hash_de", serialize_with = "hash_ser")]
-    pub witness_event_transaction_hash: Hash,
+    pub witness_event_transaction_hash: String,
     pub sender_account_address: String,
     pub source: String,
     pub structured_merkle_proof: Vec<MerkleNode>,

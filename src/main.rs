@@ -148,6 +148,9 @@ where
             i + 1,
             hash_to_hex(&rev.metadata.verification_hash)
         );
+        if args.verbose {
+            eprintln!("{}", serde_json::to_string_pretty(&rev).unwrap());
+        }
         let prev = i
             .checked_sub(1)
             .and_then(|j| verification_set.get(j))

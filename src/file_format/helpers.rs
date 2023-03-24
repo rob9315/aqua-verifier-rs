@@ -47,9 +47,7 @@ where
 pub(crate) fn base64de<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
     use base64::prelude::{Engine, BASE64_STANDARD};
     let s: String = Deserialize::deserialize(deserializer)?;
-    BASE64_STANDARD
-        .decode(s)
-        .map_err(serde::de::Error::custom)
+    BASE64_STANDARD.decode(s).map_err(serde::de::Error::custom)
 }
 
 pub(crate) fn base64ser<S: Serializer>(
@@ -218,7 +216,13 @@ pub fn signature_to_hex(
     };
     raw_to_hex(unsafe { ::core::mem::transmute(recovery_signature) })
 }
-pub fn pubkey_to_hex(pubkey: &PublicKey) -> impl AsRef<str> + AsRef<[u8]> {
+pub fn pubkey_to_hex(
+    pubkey: &PublicKey,
+) -> impl AsRef<str>
+       + AsRef<[u8]>
+       + AsRef<[u8; 2 + 2 * (libsecp256k1::util::SIGNATURE_SIZE + 1)]>
+       + ::std::fmt::Display
+       + ::std::fmt::Debug {
     into_prefixed_hex!(raw_to_hex libsecp256k1::util::SIGNATURE_SIZE + 1);
     raw_to_hex(pubkey.serialize())
 }

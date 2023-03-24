@@ -120,14 +120,14 @@ hash_fn!(
 );
 hash_fn!(
     pub fn event_verification_hash(witness: &RevisionWitness) {
-        .domain_snapshot_genesis_hash
-        + .merkle_root
+        {hash_to_hex(&witness.domain_snapshot_genesis_hash)}
+        + {hash_to_hex(&witness.merkle_root)}
     }
 );
 hash_fn!(
     pub fn witness_hash(witness: &RevisionWitness) {
-        .domain_snapshot_genesis_hash
-        + .merkle_root
+        {hash_to_hex(&witness.domain_snapshot_genesis_hash)}
+        + {hash_to_hex(&witness.merkle_root)}
         + .witness_network
         + .witness_event_transaction_hash
     }

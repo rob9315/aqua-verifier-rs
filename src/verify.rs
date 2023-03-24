@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::file_format::{hash_to_hex, wallet_to_hex, HashChain, Revision};
+use crate::file_format::{hash_to_hex, pubkey_to_hex, wallet_to_hex, HashChain, Revision};
 
 pub mod hash;
 use hash::{content_hash, event_verification_hash, file_hash, metadata_hash, verification_hash};
@@ -155,8 +155,14 @@ impl ::std::fmt::Debug for SignatureResult {
                 "listed_wallet_address",
                 &wallet_to_hex(self.listed_wallet_address),
             )
-            .field("computed_public_key", &self.computed_public_key)
-            .field("expected_public_key", &self.expected_public_key)
+            .field(
+                "computed_public_key",
+                &self.computed_public_key.as_ref().map(pubkey_to_hex),
+            )
+            .field(
+                "expected_public_key",
+                &pubkey_to_hex(&self.expected_public_key),
+            )
             .finish()
     }
 }
@@ -176,7 +182,8 @@ impl ::std::fmt::Display for VerifyResult {
         self.verification.to_str(true, "Verification", f)?;
         match &self.file_hash {
             Some(Ok(file_hash)) => {
-                file_hash.to_str(false, "📄 File", f)?;
+                f.write_str("\n  ")?;
+                file_hash.to_str(true, "📄 File", f)?;
             }
             Some(Err(_e)) => {
                 f.write_str(INDENT)?;
@@ -251,6 +258,7 @@ impl ::std::fmt::Display for WitnessResult {
             && self.lookup.as_ref().map_err(drop).copied().unwrap_or(false)
             && self.merkle.unwrap_or(true)
         {
+            f.write_str(INDENT)?;
             f.write_str(CHECKMARK)?;
             f.write_str(WATCH)?;
             f.write_str(" Witness event verification hash has been verified via etherscan.io")?;

@@ -145,10 +145,7 @@ pub fn get_hash_chain_info(
 
 // todo! deal with json errors here
 
-pub enum JsonResult<T> {
-    Ok(T),
-    Err(HttpError),
-}
+pub type JsonResult<T> = Result<T, HttpError>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
